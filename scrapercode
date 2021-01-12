@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+
+import scrapy
+from urllib.parse import urlencode
+from urllib.parse import urljoin
+import re
+import json
+
+queries = ['sun glass']
+API = 'a5ccc116a5ac3549904782abdf7769f4'
+
+def get_url(url):
+    payload = {'api_key': API, 'url': url, 'country_code': 'in'}
+    proxy_url = 'http://api.scraperapi.com/?' + urlencode(payload)
+    return proxy_url
+
+class AmazonSpider(scrapy.Spider):
+    name = 'amazon'
+    def start_requests(self):
+        for query in queries:
+            url = 'https://www.amazon.in/s?' + urlencode({'k': query})
+            yield scrapy.Request(url=get_url(url), callback=self.parse_keyword_response)
+
+    def parse_keyword_response(self, response):
+        products = response.xpath('//*[@data-asin]')
+        for product in products:
+            asin = product.xpath('@data-asin').extract_first()
+            product_url = f"https://www.amazon.in/dp/{asin}"
+            yield scrapy.Request(url=get_url(product_url), callback=self.parse_product_page, meta={'asin': asin})
+        next_page = response.xpath('//li[@class="a-last"]/a/@href').extract_first()
+        if next_page:
+            url = urljoin("https://www.amazon.in",next_page)
+            yield scrapy.Request(url=get_url(url), callback=self.parse_keyword_response)
+
+    def parse_product_page(self, response):
+        asin = response.meta['asin']
+        title = response.xpath('//*[@id="productTitle"]/text()').extract_first()
+        rating = response.xpath('//*[@id="acrPopover"]/@title').extract_first()
+        number_of_reviews = response.xpath('//*[@id="acrCustomerReviewText"]/text()').extract_first()
+        price = response.xpath('//*[@id="priceblock_ourprice"]/text()').extract_first()
+        if not price:
+            price = response.xpath('//*[@data-asin-price]/@data-asin-price').extract_first() or \
+                    response.xpath('//*[@id="price_inside_buybox"]/text()').extract_first()
+        yield {'asin': asin, 'Title': title,'Rating': rating, 'NumberOfReviews': number_of_reviews,'Price': price}
+        
+
